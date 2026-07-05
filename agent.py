@@ -4,10 +4,10 @@ agent.py
 The "brain" of the assistant: turns a plain-English question into a SQLite
 query, runs it, and prints what came back.
 
-THIS IS STEP 3 OF THE BUILD: adds the self-correction retry loop. If the
-generated SQL fails, we feed the SQL + the error back to the LLM and ask it
-to fix its own mistake, up to 5 tries. The final natural-language answer
-step is still not here — that's next.
+THIS IS STEP 4 OF THE BUILD: adds the final natural-language answer step.
+Once a query runs successfully, the raw rows are handed back to the LLM once
+more so it can phrase a short plain-English answer instead of leaving the
+user to read a list of tuples.
 """
 
 import sqlite3
@@ -100,11 +100,35 @@ def ask_llm_for_sql(schema: str, question: str, attempts: list[tuple[str, str]])
     return strip_code_fences(raw_sql)
 
 
+def ask_llm_for_answer(question: str, columns: list[str], rows: list[tuple]) -> str:
+    """
+    Final round-trip: hand the raw query results back to the LLM and ask for
+    a short plain-English answer. WHY a separate call instead of just
+    printing the rows: the user asked a natural-language question and a list
+    of tuples isn't an answer to it — this turns e.g.
+    [('Olivia Martin', 15285.06)] into "Olivia Martin spent the most, $15285.06."
+    """
+    prompt = f"""You answer questions about a database using only the query
+results below. Be concise — one or two sentences, plain English, no SQL.
+
+Question: {question}
+Columns: {columns}
+Rows: {rows}
+
+Answer:"""
+    response = ollama.chat(
+        model=MODEL,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return response["message"]["content"].strip()
+
+
 def answer_question(question: str) -> None:
     """
     Self-correcting loop: generate SQL, try to run it. If it errors, hand the
     SQL and the error back to the LLM and ask it to fix its own mistake, up
-    to MAX_TRIES times. Stops as soon as a query runs successfully.
+    to MAX_TRIES times. Once a query runs successfully, the rows go back to
+    the LLM one more time for a plain-English answer.
     """
     conn = sqlite3.connect(DB_FILE)
     schema = get_schema(conn)
@@ -120,6 +144,10 @@ def answer_question(question: str) -> None:
             columns = [description[0] for description in cur.description]
             print(f"[Columns] {columns}")
             print(f"[Rows] {rows}")
+
+            answer = ask_llm_for_answer(question, columns, rows)
+            print(f"\n[Answer] {answer}")
+
             conn.close()
             return
         except sqlite3.Error as e:
@@ -131,7 +159,6 @@ def answer_question(question: str) -> None:
 
 
 if __name__ == "__main__":
-    # Quick manual test while we build this out — main.py will replace this
-    # with a proper CLI loop in step 5.
-    print("Which 5 customers have spent the most in total?")
-    answer_question("Which 5 customers have spent the most in total?")
+    # This module is meant to be imported by main.py, which provides the
+    # actual CLI loop. Run `python main.py` to use the assistant.
+    print("Run 'python main.py' to use the assistant.")
