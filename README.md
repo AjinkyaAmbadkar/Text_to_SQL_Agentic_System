@@ -2,8 +2,8 @@
 
 A small, fully local, offline assistant that turns plain-English questions into
 SQLite queries, runs them, self-corrects on errors, and answers in plain
-English. No cloud, no API keys, no web framework — just Python, Ollama, and
-SQLite.
+English. No cloud, no API keys — just Python, Ollama, and SQLite. A terminal
+CLI and a Streamlit browser UI both sit on top of the same agent logic.
 
 ## How it works
 
@@ -45,9 +45,22 @@ python main.py
 Ask a question, e.g. `Which 5 customers have spent the most in total?`.
 Type `quit` to exit.
 
+### Browser UI
+
+```
+source venv/bin/activate
+streamlit run app.py
+```
+
+Opens at `http://localhost:8501`. Same agent, same self-correction — each
+attempt (and any SQL errors) is shown in an expandable panel, followed by the
+final answer and a results table.
+
 ## Files
 
 - `setup_db.py` — creates `shop.db` with sample e-commerce data.
-- `agent.py` — the self-correcting text-to-SQL loop.
+- `agent.py` — the self-correcting text-to-SQL loop. `answer_question()`
+  prints progress for the CLI and returns a result dict for any frontend.
 - `main.py` — the CLI: prompts for a question, calls `agent.py`, repeats.
-- `requirements.txt` — the one third-party dependency (`ollama`).
+- `app.py` — the Streamlit browser UI, built on the same `answer_question()`.
+- `requirements.txt` — third-party dependencies (`ollama`, `streamlit`).

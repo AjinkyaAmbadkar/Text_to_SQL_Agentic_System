@@ -123,19 +123,32 @@ Answer:"""
     return response["message"]["content"].strip()
 
 
-def answer_question(question: str) -> None:
+def answer_question(question: str) -> dict:
     """
     Self-correcting loop: generate SQL, try to run it. If it errors, hand the
     SQL and the error back to the LLM and ask it to fix its own mistake, up
     to MAX_TRIES times. Once a query runs successfully, the rows go back to
     the LLM one more time for a plain-English answer.
+
+    Prints progress to the terminal as it goes (so main.py's CLI shows the
+    agent reasoning live), AND returns a result dict so other frontends (like
+    a Streamlit UI) can render the same information without scraping stdout.
+
+    Returned dict:
+        attempts: list of {"sql": str, "error": str|None} for every try, in
+                  order (the last one has error=None if we succeeded)
+        columns:  column names of the successful query, or None if gave up
+        rows:     result rows of the successful query, or None if gave up
+        answer:   the LLM's plain-English answer, or None if gave up
+        gave_up:  True if no attempt succeeded within MAX_TRIES
     """
     conn = sqlite3.connect(DB_FILE)
     schema = get_schema(conn)
-    attempts: list[tuple[str, str]] = []  # (sql, error) from each failed try
+    history: list[tuple[str, str]] = []  # (sql, error) from each failed try
+    result = {"attempts": [], "columns": None, "rows": None, "answer": None, "gave_up": False}
 
     for attempt_num in range(1, MAX_TRIES + 1):
-        sql = ask_llm_for_sql(schema, question, attempts)
+        sql = ask_llm_for_sql(schema, question, history)
         print(f"\n[Attempt {attempt_num}] Generated SQL:\n{sql}\n")
 
         try:
@@ -148,14 +161,21 @@ def answer_question(question: str) -> None:
             answer = ask_llm_for_answer(question, columns, rows)
             print(f"\n[Answer] {answer}")
 
+            result["attempts"].append({"sql": sql, "error": None})
+            result["columns"] = columns
+            result["rows"] = rows
+            result["answer"] = answer
             conn.close()
-            return
+            return result
         except sqlite3.Error as e:
             print(f"[SQL Error] {e}")
-            attempts.append((sql, str(e)))
+            history.append((sql, str(e)))
+            result["attempts"].append({"sql": sql, "error": str(e)})
 
     print(f"\n[Gave up] Could not produce a working query after {MAX_TRIES} attempts.")
+    result["gave_up"] = True
     conn.close()
+    return result
 
 
 if __name__ == "__main__":
